@@ -4,12 +4,13 @@ from time import time as t
 from eagerpy import ones
 import logging
 import json
-
-import matplotlib.pyplot as plt
+import sys
 import torch
-from torchvision import transforms
+import matplotlib.pyplot as plt
 from tqdm import tqdm
-
+from torchvision import transforms
+from torch.utils.data import DataLoader
+from dataloader.mnist_sampler import DatasetLoader, CategoriesSampler
 from bindsnet.analysis.plotting import (
     plot_conv2d_weights,
     plot_input,
@@ -46,6 +47,8 @@ def setup_logger(name, log_file, level=logging.INFO):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=0)
+parser.add_argument("--n_way", type=int, default=2)
+parser.add_argument("--k_shot", type=int, default=5)
 parser.add_argument("--n_epochs", type=int, default=20)
 parser.add_argument("--n_test", type=int, default=10000)
 parser.add_argument("--n_train", type=int, default=60000)
@@ -86,6 +89,32 @@ update_interval = args.update_interval
 train = args.train
 plot = args.plot
 gpu = args.gpu
+n_way = args.n_way
+k_shot = args.k_shot
+
+# Load MNIST data.
+
+train_data = DatasetLoader(
+    path = './data/mnist-meta', 
+    time = time, 
+    dt = dt,
+    intensity = intensity)
+
+print(train_data[0]['encoded_image'].shape)
+
+train_sampler = CategoriesSampler(
+    train_data.label, 
+    batch_size, 
+    n_way, 
+    k_shot)
+
+train_loader = DataLoader(
+    dataset=train_data, 
+    batch_sampler=train_sampler, 
+    num_workers=0, 
+    pin_memory=gpu)
+
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if gpu and torch.cuda.is_available():
@@ -191,18 +220,6 @@ network.add_monitor(voltage_monitor, name="output_voltage")
 if gpu:
     network.to("cuda")
 
-# Load MNIST data.
-train_dataset = MNIST(
-    PoissonEncoder(time=time, dt=dt),
-    None,
-    "../../data/MNIST",
-    download=True,
-    train=True,
-    transform=transforms.Compose(
-        [transforms.ToTensor(), transforms.Lambda(lambda x: x * intensity)]
-    ),
-)
-
 spikes = {}
 for layer in set(network.layers):
     spikes[layer] = Monitor(network.layers[layer], state_vars=["s"], time=time)
@@ -248,15 +265,7 @@ for epoch in range(n_epochs):
     total_corrects_count = 0
     total_attempts_count = 0
 
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=0,
-        pin_memory=gpu,
-    )
-
-    for step, batch in enumerate(tqdm(train_dataloader)):
+    for step, batch in enumerate(tqdm(train_loader)):
 
         # Get next input sample.  inaro dadam jolo bara if
         if step > 1000:  #if step > n_train:
