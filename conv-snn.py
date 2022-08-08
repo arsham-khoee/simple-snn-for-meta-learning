@@ -22,8 +22,8 @@ from bindsnet.encoding import PoissonEncoder
 from bindsnet.learning import PostPre, WeightDependentPostPre, MSTDP, MSTDPET, Rmax
 from bindsnet.network import Network
 from bindsnet.network.monitors import Monitor
-from bindsnet.network.nodes import  DiehlAndCookNodes, Input, LIFNodes, AdaptiveLIFNodes, MaxPool2dLIFNodes
-from bindsnet.network.topology import Connection, Conv2dConnection, MaxPool2dConnection, GlobalMaxPoolConnection, SparseConnection
+from bindsnet.network.nodes import  DiehlAndCookNodes, Input, LIFNodes, AdaptiveLIFNodes
+from bindsnet.network.topology import Connection, Conv2dConnection, MaxPool2dConnection, SparseConnection
 from bindsnet.pipeline import EnvironmentPipeline
 from bindsnet.pipeline.action import select_softmax
 
@@ -132,16 +132,6 @@ conv_conn = Conv2dConnection(
 )
 
 conv_conn.w = torch.load('weights1.pt') # load pretrained conv2d weights using STDP
-
-out_layer = MaxPool2dLIFNodes(
-    n=n_filters,
-    shape=(n_filters, 1, 1),
-)
-
-out_conn = GlobalMaxPoolConnection(
-    source=conv_layer,
-    target=out_layer,
-)
 
 w = torch.zeros(n_filters, conv_size, conv_size, n_filters, conv_size, conv_size)
 for fltr1 in range(n_filters):
