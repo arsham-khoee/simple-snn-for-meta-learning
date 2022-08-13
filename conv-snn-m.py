@@ -160,7 +160,7 @@ pred_layer = LIFNodes(
     #shape=(1, 1, n_filters),
     shape=(10*len(c_num), 1),
     traces=True,
-    thresh= -60.0
+    thresh= -60.0,
 )
 
 conv_pred_conn = Connection(
@@ -171,7 +171,7 @@ conv_pred_conn = Connection(
     wmax=1,  # maximum weight value
     update_rule=MSTDPET,  # learning rule
     nu=1e-1,  # learning rate
-    norm= pred_layer.n # * 0.5,  # normalization
+    norm= pred_layer.n, # * 0.5,  # normalization
 )
 
 # lateral connection
@@ -262,9 +262,11 @@ for epoch in range(n_epochs):
         pin_memory=gpu,
     )
 
+    conv_pred_conn.learnable = False
+
     for step, batch in enumerate(tqdm(train_dataloader)):
 
-        # Get next input sample.  inaro dadam jolo bara if
+        # Get next input sample.  
         if step > n_train:
             break
         inputs = {"X": batch["encoded_image"].view(time, batch_size, 1, 28, 28)}
@@ -274,6 +276,7 @@ for epoch in range(n_epochs):
 
         if (label.item() in c_num):
 
+            # inaro dadam jolo bara if
             if reward > 0 and wn_std > (0.01 / len(c_num)):
                 wn_std -= (0.01 / len(c_num)) # 
                 #pred_pred_conn.w[pred_pred_conn.w < 0] += 0.005 # 0.001 
