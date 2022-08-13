@@ -269,6 +269,7 @@ for epoch in range(n_epochs):
         # Get next input sample.  
         if step > n_train:
             break
+        #print(batch["encoded_image"].shape)
         inputs = {"X": batch["encoded_image"].view(time, batch_size, 1, 28, 28)}
         if gpu: 
             inputs = {k: v.cuda() for k, v in inputs.items()}
@@ -390,4 +391,3 @@ for epoch in range(n_epochs):
         
 print("Progress: %d / %d (%.4f seconds)\n" % (n_epochs, n_epochs, t() - start))
 print("Training complete.\n")
-

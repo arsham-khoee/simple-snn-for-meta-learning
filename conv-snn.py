@@ -4,12 +4,13 @@ from time import time as t
 from eagerpy import ones
 import logging
 import json
-
-import matplotlib.pyplot as plt
+import sys
 import torch
-from torchvision import transforms
+import matplotlib.pyplot as plt
 from tqdm import tqdm
-
+from torchvision import transforms
+from torch.utils.data import DataLoader
+from dataloader.mnist_sampler import DatasetLoader, CategoriesSampler
 from bindsnet.analysis.plotting import (
     plot_conv2d_weights,
     plot_input,
@@ -22,8 +23,8 @@ from bindsnet.encoding import PoissonEncoder
 from bindsnet.learning import PostPre, WeightDependentPostPre, MSTDP, MSTDPET, Rmax
 from bindsnet.network import Network
 from bindsnet.network.monitors import Monitor
-from bindsnet.network.nodes import  DiehlAndCookNodes, Input, LIFNodes, AdaptiveLIFNodes, MaxPool2dLIFNodes
-from bindsnet.network.topology import Connection, Conv2dConnection, MaxPool2dConnection, GlobalMaxPoolConnection, SparseConnection
+from bindsnet.network.nodes import  DiehlAndCookNodes, Input, LIFNodes, AdaptiveLIFNodes
+from bindsnet.network.topology import Connection, Conv2dConnection, MaxPool2dConnection, SparseConnection
 from bindsnet.pipeline import EnvironmentPipeline
 from bindsnet.pipeline.action import select_softmax
 
@@ -46,9 +47,12 @@ def setup_logger(name, log_file, level=logging.INFO):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=0)
+parser.add_argument("--n_way", type=int, default=2)
+parser.add_argument("--k_shot", type=int, default=5)
 parser.add_argument("--n_epochs", type=int, default=20)
-parser.add_argument("--n_test", type=int, default=10000)
-parser.add_argument("--n_train", type=int, default=60000)
+parser.add_argument("--n_test", type=int, default=20)
+parser.add_argument("--n_train", type=int, default=64)
+parser.add_argument("--n_validation", type=int, default=16)
 parser.add_argument("--batch_size", type=int, default=1)
 parser.add_argument("--kernel_size", type=int, default=8)
 parser.add_argument("--stride", type=int, default=2)
@@ -86,6 +90,32 @@ update_interval = args.update_interval
 train = args.train
 plot = args.plot
 gpu = args.gpu
+n_way = args.n_way
+k_shot = args.k_shot
+
+# Load MNIST data.
+
+train_data = DatasetLoader(
+    path = './data/mnist-meta', 
+    time = time, 
+    dt = dt,
+    intensity = intensity)
+
+print(train_data[0]['encoded_image'].shape)
+
+train_sampler = CategoriesSampler(
+    train_data.label, 
+    batch_size, 
+    n_way, 
+    k_shot)
+
+train_loader = DataLoader(
+    dataset=train_data, 
+    batch_sampler=train_sampler, 
+    num_workers=0, 
+    pin_memory=gpu)
+
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if gpu and torch.cuda.is_available():
@@ -133,16 +163,6 @@ conv_conn = Conv2dConnection(
 
 conv_conn.w = torch.load('weights1.pt') # load pretrained conv2d weights using STDP
 
-out_layer = MaxPool2dLIFNodes(
-    n=n_filters,
-    shape=(n_filters, 1, 1),
-)
-
-out_conn = GlobalMaxPoolConnection(
-    source=conv_layer,
-    target=out_layer,
-)
-
 w = torch.zeros(n_filters, conv_size, conv_size, n_filters, conv_size, conv_size)
 for fltr1 in range(n_filters):
     for fltr2 in range(n_filters):
@@ -160,7 +180,7 @@ pred_layer = LIFNodes(
     #shape=(1, 1, n_filters),
     shape=(10*len(c_num), 1),
     traces=True,
-    thresh= -60.0
+    thresh= -60.0,
 )
 
 conv_pred_conn = Connection(
@@ -171,7 +191,7 @@ conv_pred_conn = Connection(
     wmax=1,  # maximum weight value
     update_rule=MSTDPET,  # learning rule
     nu=1e-1,  # learning rate
-    norm= pred_layer.n # * 0.5,  # normalization
+    norm= pred_layer.n, # * 0.5,  # normalization
 )
 
 # lateral connection
@@ -183,13 +203,10 @@ pred_pred_conn = Connection(pred_layer, pred_layer, w=w) # w = -1 * (torch.ones(
 
 network.add_layer(input_layer, name="X")
 network.add_layer(conv_layer, name="Y")
-#network.add_layer(out_layer, name="O")
 network.add_layer(pred_layer, name="P")
 
 network.add_connection(conv_conn, source="X", target="Y")
 network.add_connection(recurrent_conn, source="Y", target="Y")
-#network.add_connection(out_conn, source="Y", target="O")
-#network.add_connection(o_pred_conn, source="O", target="P")
 network.add_connection(conv_pred_conn, source="Y", target="P")
 network.add_connection(pred_pred_conn, source="P", target="P")
 
@@ -200,18 +217,6 @@ network.add_monitor(voltage_monitor, name="output_voltage")
 
 if gpu:
     network.to("cuda")
-
-# Load MNIST data.
-train_dataset = MNIST(
-    PoissonEncoder(time=time, dt=dt),
-    None,
-    "../../data/MNIST",
-    download=True,
-    train=True,
-    transform=transforms.Compose(
-        [transforms.ToTensor(), transforms.Lambda(lambda x: x * intensity)]
-    ),
-)
 
 spikes = {}
 for layer in set(network.layers):
@@ -258,25 +263,17 @@ for epoch in range(n_epochs):
     total_corrects_count = 0
     total_attempts_count = 0
 
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=0,
-        pin_memory=gpu,
-    )
-
-    for step, batch in enumerate(tqdm(train_dataloader)):
+    for step, task in enumerate(tqdm(train_loader)):
 
         # Get next input sample.  inaro dadam jolo bara if
-        if step > 1000:  #if step > n_train:
+        if step > n_train:  
             break
-        inputs = {"X": batch["encoded_image"].view(time, batch_size, 1, 28, 28)}
-        if gpu: 
-            inputs = {k: v.cuda() for k, v in inputs.items()}
-        label = batch["label"]
 
-        if (label.item() in c_num):
+        for batch in task:
+            inputs = {"X": batch["encoded_image"].view(time, batch_size, 1, 28, 28)}
+            if gpu: 
+                inputs = {k: v.cuda() for k, v in inputs.items()}
+            label = batch["label"]
 
             total_attempts_count += 1
 
@@ -396,4 +393,3 @@ for epoch in range(n_epochs):
 
 print("Progress: %d / %d (%.4f seconds)\n" % (n_epochs, n_epochs, t() - start))
 print("Training complete.\n")
-
