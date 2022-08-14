@@ -183,12 +183,46 @@ lif_layer = LIFNodes(
     refrac=0,
 )
 
+conv_lif_conn = Connection(
+    conv_layer,
+    lif_layer,
+    w=torch.multiply((0.05 + torch.randn(conv_layer.n, lif_layer.n)), torch.empty(conv_layer.n, lif_layer.n).random_(2)),
+    wmin=0,  # minimum weight value
+    wmax=1,  # maximum weight value
+    update_rule=MSTDPET,  # learning rule
+    nu=1e-1,  # learning rate
+    norm= lif_layer.n * 0.75 ,  # normalization
+)
+
+lif_lif_conn = Connection(
+    lif_layer,
+    lif_layer, 
+    w = -0.15* torch.ones((lif_layer.n, lif_layer.n)),
+    #w=-1*torch.multiply((0.05 + torch.randn(lif_layer_c1.n, lif_layer_c1.n)), torch.empty(lif_layer_c1.n, lif_layer_c1.n).random_(2)),
+    #wmin=-1,  # minimum weight value
+    #wmax=0,  # maximum weight value
+    #update_rule=MSTDPET,  # learning rule
+    #nu=1e-1,  # learning rate
+    #norm= lif_layer_c1.n * 0.5 ,  # normalization
+)
+
 pred_layer = LIFNodes(
     n=10*n_way,
     #shape=(1, 1, n_filters),
     shape=(10*n_way, 1),
     traces=True,
     thresh= -60.0,
+)
+
+lif_pred_conn = Connection(
+    lif_layer,
+    pred_layer, 
+    w = torch.multiply((0.05 + torch.randn(lif_layer.n, pred_layer.n)), torch.empty(lif_layer.n, pred_layer.n).random_(2)),
+    wmin=0,  # minimum weight value
+    wmax=1,  # maximum weight value
+    update_rule=MSTDPET,  # learning rule
+    nu=1e-1,  # learning rate
+    norm= pred_layer.n # * 0.5,  # normalization
 )
 
 conv_pred_conn = Connection(
@@ -211,12 +245,15 @@ pred_pred_conn = Connection(pred_layer, pred_layer, w=w) # w = -1 * (torch.ones(
 
 network.add_layer(input_layer, name="X")
 network.add_layer(conv_layer, name="Y")
+network.add_layer(lif_layer, name="E")
 network.add_layer(pred_layer, name="P")
 
 network.add_connection(conv_conn, source="X", target="Y")
-#network.add_connection(recurrent_conn, source="Y", target="Y")
-network.add_connection(conv_pred_conn, source="Y", target="P")
-#network.add_connection(pred_pred_conn, source="P", target="P")
+network.add_connection(recurrent_conn, source="Y", target="Y")
+network.add_connection(conv_lif_conn, source="Y", target="E")
+network.add_connection(lif_lif_conn, source="E", target="E")
+network.add_connection(lif_pred_conn, source="E", target="P")
+network.add_connection(pred_pred_conn, source="P", target="P")
 
 
 # Voltage recording for excitatory and inhibitory layers.
@@ -280,9 +317,9 @@ for epoch in range(n_epochs):
         # Get next input sample.  inaro dadam jolo bara if
         if step > n_train:  
             break
+        print("EPISODE: " + str(step))
         conv_pred_conn.learnable = False
         for batch_idx, batch in enumerate(task):
-            print("STAAAAAAAAAAAAAAART")
             inputs = {"X": batch["encoded_image"].view(time, batch_size, 1, 28, 28)}
             if gpu: 
                 inputs = {k: v.cuda() for k, v in inputs.items()}
@@ -339,10 +376,10 @@ for epoch in range(n_epochs):
             print("Predicted classes: " + str(c) + ", Label: " + str(label.item())) # print(label.data[0])
                     
             if batch_idx in range(0, n_way*k_shot):
-                print("INNER LOOP ADAPTATION"+str(batch_idx))
+                print("INNER LOOP ADAPTATION: " + str(batch_idx))
 
             if batch_idx in range(n_way*k_shot,(n_way*k_shot)+n_way):
-                print("OUTER LOOP ADAPTATION"+str(batch_idx))
+                print("OUTER LOOP ADAPTATION: " + str(batch_idx))
                 conv_pred_conn.learnable = True
 
                 if len(c) > 1 and torch.all(pred_firing_rate == 0):
@@ -379,6 +416,7 @@ for epoch in range(n_epochs):
                 _spikes = {
                     "X": spikes["X"].get("s").view(time, -1),
                     "Y": spikes["Y"].get("s").view(time, -1),
+                    "E": spikes["E"].get("s").view(time, -1),
                     "P": spikes["P"].get("s").view(time, -1),                
                 }
                 _voltages = {"Y": voltages["Y"].get("v").view(time, -1)}
@@ -406,7 +444,7 @@ for epoch in range(n_epochs):
                     # print("weights1 saved to file successfully!")
 
             network.reset_state_variables()  # Reset state variables.
-            print("ENNNNNNNNNNNND")
+            
     print("Training Accuracy: " + str(total_corrects_count/total_attempts_count))
 
 print("Progress: %d / %d (%.4f seconds)\n" % (n_epochs, n_epochs, t() - start))
