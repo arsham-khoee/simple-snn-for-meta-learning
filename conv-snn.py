@@ -50,9 +50,9 @@ parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--n_way", type=int, default=2)
 parser.add_argument("--k_shot", type=int, default=5)
 parser.add_argument("--n_epochs", type=int, default=20)
+parser.add_argument("--n_tasks", type=int, default=100)
 parser.add_argument("--n_test", type=int, default=20)
-parser.add_argument("--n_train", type=int, default=64)
-parser.add_argument("--n_validation", type=int, default=16)
+parser.add_argument("--n_train", type=int, default=80)
 parser.add_argument("--batch_size", type=int, default=1)
 parser.add_argument("--kernel_size", type=int, default=8)
 parser.add_argument("--stride", type=int, default=2)
@@ -74,6 +74,7 @@ args = parser.parse_args()
 
 seed = args.seed
 n_epochs = args.n_epochs
+n_tasks = args.n_tasks
 n_test = args.n_test
 n_train = args.n_train
 batch_size = args.batch_size
@@ -101,20 +102,20 @@ train_data = DatasetLoader(
     dt = dt,
     intensity = intensity)
 
-print(train_data[0]['encoded_image'].shape)
-
 train_sampler = CategoriesSampler(
     train_data.label, 
-    batch_size, 
+    n_tasks, 
     n_way, 
     k_shot)
 
-train_loader = DataLoader(
+task_loader = DataLoader(
     dataset=train_data, 
     batch_sampler=train_sampler, 
     num_workers=0, 
     pin_memory=gpu)
 
+#train_loader = task_loader[:n_train]
+#test_loader = task_loader[n_train:(n_train + n_test)]
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -135,7 +136,6 @@ if not train:
 conv_size = int((28 - kernel_size + 2 * padding) / stride) + 1
 per_class = int((n_filters * conv_size * conv_size) / 10)
 
-c_num = list(range(0, 2)) # kelasaye morede niaz
 
 # Build network.
 network = Network()
@@ -176,9 +176,9 @@ recurrent_conn = Connection(conv_layer, conv_layer, w=w)
 
 
 pred_layer = LIFNodes(
-    n=10*len(c_num),
+    n=10*n_way,
     #shape=(1, 1, n_filters),
-    shape=(10*len(c_num), 1),
+    shape=(10*n_way, 1),
     traces=True,
     thresh= -60.0,
 )
@@ -195,7 +195,7 @@ conv_pred_conn = Connection(
 )
 
 # lateral connection
-w = torch.kron(torch.eye(len(c_num)),torch.ones([10, 10]))
+w = torch.kron(torch.eye(n_way),torch.ones([10, 10]))
 w[w == 0] = -3
 w[w == 1] = 0 # in khate mitune nabashe
 pred_pred_conn = Connection(pred_layer, pred_layer, w=w) # w = -1 * (torch.ones(pred_layer.n, pred_layer.n).fill_diagonal_(-1))
@@ -253,6 +253,9 @@ reward = 0
 wn_mean=0
 wn_std=3
 
+def label_encoding(labels):
+    labels.apply_(lambda x: 0 if x is labels.unique()[0].item() else 1)
+
 for epoch in range(n_epochs):
     if epoch % progress_interval == 0:
         print("Progress: %d / %d (%.4f seconds)" % (epoch, n_epochs, t() - start))
@@ -263,8 +266,9 @@ for epoch in range(n_epochs):
     total_corrects_count = 0
     total_attempts_count = 0
 
-    for step, task in enumerate(tqdm(train_loader)):
-
+    for step, task in enumerate(tqdm(task_loader)):
+        label_encoding(task['label'])
+        task = [{"image": task['image'][idx], "encoded_image":task['encoded_image'][idx], "label":task['label'][idx]} for idx in range(task['image'].shape[0])]
         # Get next input sample.  inaro dadam jolo bara if
         if step > n_train:  
             break
@@ -277,8 +281,8 @@ for epoch in range(n_epochs):
 
             total_attempts_count += 1
 
-            if reward > 0 and wn_std > (0.01 / len(c_num)):
-                wn_std -= (0.01 / len(c_num)) # 
+            if reward > 0 and wn_std > (0.01 / n_way):
+                wn_std -= (0.01 / n_way) # 
                 #pred_pred_conn.w[pred_pred_conn.w < 0] += 0.005 # 0.001 
 
             reward = 0 ###
@@ -317,13 +321,14 @@ for epoch in range(n_epochs):
             #    reward = -1
         
             # rewarding policy for 10 neuron per class in pred_layer
-            m = torch.zeros(len(c_num), dtype=torch.bool)
+            m = torch.zeros(n_way, dtype=torch.bool)
 
             for i in range(len(p)):
                 m[int(p[i] / 10)] = True
 
             c = torch.where(m == True)[0]
 
+            
             print("Predicted classes: " + str(c))
         
             print("Label: " + str(label.item())) # print(label.data[0])

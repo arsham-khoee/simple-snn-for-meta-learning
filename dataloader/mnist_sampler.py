@@ -48,7 +48,6 @@ class DatasetLoader(Dataset):
             'encoded_image': self.encoding(image),
             'label': label,
         }
-        return image, label
 
 
 class CategoriesSampler():

@@ -267,6 +267,7 @@ for epoch in range(n_epochs):
     for step, batch in enumerate(tqdm(train_dataloader)):
 
         # Get next input sample.  
+        
         if step > n_train:
             break
         #print(batch["encoded_image"].shape)
