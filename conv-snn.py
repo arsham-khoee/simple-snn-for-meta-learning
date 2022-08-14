@@ -174,6 +174,14 @@ for fltr1 in range(n_filters):
 w = w.view(n_filters * conv_size * conv_size, n_filters * conv_size * conv_size)
 recurrent_conn = Connection(conv_layer, conv_layer, w=w)
 
+lif_layer = LIFNodes(
+    n=300, 
+    #shape=(1, 1, n_filters),
+    shape=(300, 1),
+    traces=True,
+  #  thresh=-52.5,
+    refrac=0,
+)
 
 pred_layer = LIFNodes(
     n=10*n_way,
@@ -206,9 +214,9 @@ network.add_layer(conv_layer, name="Y")
 network.add_layer(pred_layer, name="P")
 
 network.add_connection(conv_conn, source="X", target="Y")
-network.add_connection(recurrent_conn, source="Y", target="Y")
+#network.add_connection(recurrent_conn, source="Y", target="Y")
 network.add_connection(conv_pred_conn, source="Y", target="P")
-network.add_connection(pred_pred_conn, source="P", target="P")
+#network.add_connection(pred_pred_conn, source="P", target="P")
 
 
 # Voltage recording for excitatory and inhibitory layers.
@@ -272,18 +280,15 @@ for epoch in range(n_epochs):
         # Get next input sample.  inaro dadam jolo bara if
         if step > n_train:  
             break
-
+        conv_pred_conn.learnable = False
         for batch_idx, batch in enumerate(task):
+            print("STAAAAAAAAAAAAAAART")
             inputs = {"X": batch["encoded_image"].view(time, batch_size, 1, 28, 28)}
             if gpu: 
                 inputs = {k: v.cuda() for k, v in inputs.items()}
             label = batch["label"]
 
             total_attempts_count += 1
-
-            #if reward > 0 and wn_std > (0.01 / n_way):
-                #wn_std -= (0.01 / n_way) # 
-                #pred_pred_conn.w[pred_pred_conn.w < 0] += 0.005 # 0.001 
 
             reward = 0 ###
 
@@ -328,17 +333,16 @@ for epoch in range(n_epochs):
 
             c = torch.where(m == True)[0]
 
-            if c.item() == label.item():
+            if len(c) == 1 and c.item() == label.item():
                 total_corrects_count += 1
 
-            print("Predicted classes: " + str(c[0].item()) + ", Label: " + str(label.item())) # print(label.data[0])
-        
+            print("Predicted classes: " + str(c) + ", Label: " + str(label.item())) # print(label.data[0])
+                    
             if batch_idx in range(0, n_way*k_shot):
-                print("INNER LOOP ADAPTATION")
-                conv_pred_conn.learnable = False
+                print("INNER LOOP ADAPTATION"+str(batch_idx))
 
             if batch_idx in range(n_way*k_shot,(n_way*k_shot)+n_way):
-                print("OUTER LOOP ADAPTATION")
+                print("OUTER LOOP ADAPTATION"+str(batch_idx))
                 conv_pred_conn.learnable = True
 
                 if len(c) > 1 and torch.all(pred_firing_rate == 0):
@@ -402,7 +406,7 @@ for epoch in range(n_epochs):
                     # print("weights1 saved to file successfully!")
 
             network.reset_state_variables()  # Reset state variables.
-
+            print("ENNNNNNNNNNNND")
     print("Training Accuracy: " + str(total_corrects_count/total_attempts_count))
 
 print("Progress: %d / %d (%.4f seconds)\n" % (n_epochs, n_epochs, t() - start))
