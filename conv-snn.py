@@ -49,7 +49,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--n_way", type=int, default=2)
 parser.add_argument("--k_shot", type=int, default=5)
-parser.add_argument("--n_epochs", type=int, default=20)
+parser.add_argument("--n_epochs", type=int, default=200)
 parser.add_argument("--n_tasks", type=int, default=100)
 parser.add_argument("--n_test", type=int, default=20)
 parser.add_argument("--n_train", type=int, default=80)
@@ -211,7 +211,7 @@ pred_layer = LIFNodes(
     #shape=(1, 1, n_filters),
     shape=(10*n_way, 1),
     traces=True,
-    thresh= -60.0,
+    thresh= -62.0,
 )
 
 lif_pred_conn = Connection(
@@ -222,7 +222,7 @@ lif_pred_conn = Connection(
     wmax=1,  # maximum weight value
     update_rule=MSTDPET,  # learning rule
     nu=1e-1,  # learning rate
-    norm= pred_layer.n # * 0.5,  # normalization
+    norm= pred_layer.n * 2 # * 0.5,  # normalization
 )
 
 conv_pred_conn = Connection(
