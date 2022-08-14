@@ -1,1 +1,11 @@
+__pycache__/
+.vscode/
 data/
+log/
+
+# File types
+*.pyc
+*.npy
+
+# File
+.DS_Store
