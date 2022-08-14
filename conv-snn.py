@@ -273,7 +273,7 @@ for epoch in range(n_epochs):
         if step > n_train:  
             break
 
-        for batch in task:
+        for batch_idx, batch in enumerate(task):
             inputs = {"X": batch["encoded_image"].view(time, batch_size, 1, 28, 28)}
             if gpu: 
                 inputs = {k: v.cuda() for k, v in inputs.items()}
@@ -281,8 +281,8 @@ for epoch in range(n_epochs):
 
             total_attempts_count += 1
 
-            if reward > 0 and wn_std > (0.01 / n_way):
-                wn_std -= (0.01 / n_way) # 
+            #if reward > 0 and wn_std > (0.01 / n_way):
+                #wn_std -= (0.01 / n_way) # 
                 #pred_pred_conn.w[pred_pred_conn.w < 0] += 0.005 # 0.001 
 
             reward = 0 ###
@@ -328,20 +328,29 @@ for epoch in range(n_epochs):
 
             c = torch.where(m == True)[0]
 
-            
-            print("Predicted classes: " + str(c))
-        
-            print("Label: " + str(label.item())) # print(label.data[0])
-
-            if len(c) > 1 and torch.all(pred_firing_rate == 0):
-                reward = 0
-            elif len(c) > 1 and not(torch.all(pred_firing_rate == 0)): 
-                reward = -1
-            elif c.item() == label.item():
-                reward = 1
+            if c.item() == label.item():
                 total_corrects_count += 1
-            elif c.item() != label.item():
-                reward = -1
+
+            print("Predicted classes: " + str(c[0].item()) + ", Label: " + str(label.item())) # print(label.data[0])
+        
+            if batch_idx in range(0, n_way*k_shot):
+                print("INNER LOOP ADAPTATION")
+                conv_pred_conn.learnable = False
+
+            if batch_idx in range(n_way*k_shot,(n_way*k_shot)+n_way):
+                print("OUTER LOOP ADAPTATION")
+                conv_pred_conn.learnable = True
+
+                if len(c) > 1 and torch.all(pred_firing_rate == 0):
+                    reward = 0
+                elif len(c) > 1 and not(torch.all(pred_firing_rate == 0)): 
+                    reward = -1
+                elif c.item() == label.item():
+                    reward = 1
+                    if wn_std > (0.01 / n_way):
+                        wn_std -= (0.01 / n_way) 
+                elif c.item() != label.item():
+                    reward = -1
 
             total_reward += reward
             #print("reward = " + str(reward) + ", total_reward = " + str(total_reward))
