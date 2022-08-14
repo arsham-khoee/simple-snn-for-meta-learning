@@ -191,7 +191,7 @@ conv_lif_conn = Connection(
     wmax=1,  # maximum weight value
     update_rule=MSTDPET,  # learning rule
     nu=1e-1,  # learning rate
-    norm= lif_layer.n * 0.75 ,  # normalization
+    norm= lif_layer.n * 0.5 ,  # normalization
 )
 
 lif_lif_conn = Connection(
@@ -346,9 +346,13 @@ for epoch in range(n_epochs):
 
             #logger_p = setup_logger('pred_layer', 'pred_layer.log')
             #logger_p.info("step: " + str(step) + " " + str(voltages["P"].get("v").float().squeeze()))
+            lif_firing_rate = spikes["E"].get("s").float().squeeze().T.sum(axis=1)
+            lif_firing_rate[lif_firing_rate > 0] = 1 
+            lif_activity_pct = (torch.sum(lif_firing_rate).item() / lif_layer.n)*100
+            #print(lif_activity_pct)
 
             pred_firing_rate = spikes["P"].get("s").float().squeeze().T.sum(axis=1)
-            print("pred_layer firing rate: " + str(pred_firing_rate))
+            #print("pred_layer firing rate: " + str(pred_firing_rate))
 
             p = torch.where(pred_firing_rate == torch.amax(pred_firing_rate))[0]
             #print("Index of spiking neurons: " + str(p))
@@ -377,6 +381,12 @@ for epoch in range(n_epochs):
                     
             if batch_idx in range(0, n_way*k_shot):
                 print("INNER LOOP ADAPTATION: " + str(batch_idx))
+                if lif_activity_pct == 0.0:
+                    reward=0
+                elif lif_activity_pct <= 20.0:
+                    reward = 1
+                elif lif_activity_pct > 20.0:
+                    reward = -1
 
             if batch_idx in range(n_way*k_shot,(n_way*k_shot)+n_way):
                 print("OUTER LOOP ADAPTATION: " + str(batch_idx))
