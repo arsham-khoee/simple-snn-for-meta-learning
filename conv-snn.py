@@ -6,6 +6,8 @@ import logging
 import json
 import sys
 import torch
+import pandas as pd
+from copy import deepcopy
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from torchvision import transforms
@@ -194,10 +196,11 @@ conv_lif_conn = Connection(
     norm= lif_layer.n * 0.5 ,  # normalization
 )
 
+w_lif_lif = -1 * torch.ones(lif_layer.n, lif_layer.n)
 lif_lif_conn = Connection(
     lif_layer,
     lif_layer, 
-    w = -0.15* torch.ones((lif_layer.n, lif_layer.n)),
+    w = w_lif_lif,
     #w=-1*torch.multiply((0.05 + torch.randn(lif_layer_c1.n, lif_layer_c1.n)), torch.empty(lif_layer_c1.n, lif_layer_c1.n).random_(2)),
     #wmin=-1,  # minimum weight value
     #wmax=0,  # maximum weight value
@@ -298,9 +301,6 @@ reward = 0
 wn_mean=0
 wn_std=3
 
-def label_encoding(labels):
-    labels.apply_(lambda x: 0 if x is labels.unique()[0].item() else 1)
-
 for epoch in range(n_epochs):
     if epoch % progress_interval == 0:
         print("Progress: %d / %d (%.4f seconds)" % (epoch, n_epochs, t() - start))
@@ -312,7 +312,7 @@ for epoch in range(n_epochs):
     total_attempts_count = 0
 
     for step, task in enumerate(tqdm(task_loader)):
-        label_encoding(task['label'])
+        labels = torch.unique(task['label'])
         task = [{"image": task['image'][idx], "encoded_image":task['encoded_image'][idx], "label":task['label'][idx]} for idx in range(task['image'].shape[0])]
         # Get next input sample.  inaro dadam jolo bara if
         if step > n_train:  
@@ -324,6 +324,9 @@ for epoch in range(n_epochs):
             if gpu: 
                 inputs = {k: v.cuda() for k, v in inputs.items()}
             label = batch["label"]
+            block_n = int(lif_layer.n / 10)
+            lif_lif_conn.w[lif_lif_conn.w == 1] = -1 
+            lif_lif_conn.w[label.item()*block_n:(label.item()+1)*block_n, label.item()*block_n:(label.item()+1)*block_n] = 1
 
             total_attempts_count += 1
 
@@ -347,8 +350,9 @@ for epoch in range(n_epochs):
             #logger_p = setup_logger('pred_layer', 'pred_layer.log')
             #logger_p.info("step: " + str(step) + " " + str(voltages["P"].get("v").float().squeeze()))
             lif_firing_rate = spikes["E"].get("s").float().squeeze().T.sum(axis=1)
-            lif_firing_rate[lif_firing_rate > 0] = 1 
-            lif_activity_pct = (torch.sum(lif_firing_rate).item() / lif_layer.n)*100
+            #lif_firing_rate[lif_firing_rate > 0] = 1 
+            #lif_activity_pct = (torch.sum(lif_firing_rate).item() / lif_layer.n)*100
+            lif_activity_pct = (torch.sum(lif_firing_rate).item() / (lif_layer.n*time))*100
             #print(lif_activity_pct)
 
             pred_firing_rate = spikes["P"].get("s").float().squeeze().T.sum(axis=1)
@@ -374,18 +378,16 @@ for epoch in range(n_epochs):
 
             c = torch.where(m == True)[0]
 
-            if len(c) == 1 and c.item() == label.item():
+            if len(c) == 1 and c.item() == (labels == label.item()).nonzero(as_tuple=True)[0].item():
                 total_corrects_count += 1
 
-            print("Predicted classes: " + str(c) + ", Label: " + str(label.item())) # print(label.data[0])
+            print("Predicted classes: " + str(c) + ", Label: " + str((labels == label.item()).nonzero(as_tuple=True)[0].item())) # print(label.data[0])
                     
             if batch_idx in range(0, n_way*k_shot):
                 print("INNER LOOP ADAPTATION: " + str(batch_idx))
-                if lif_activity_pct == 0.0:
-                    reward=0
-                elif lif_activity_pct <= 20.0:
+                if lif_activity_pct >= 2.5 and lif_activity_pct < 7.5:
                     reward = 1
-                elif lif_activity_pct > 20.0:
+                else:
                     reward = -1
 
             if batch_idx in range(n_way*k_shot,(n_way*k_shot)+n_way):
@@ -396,11 +398,11 @@ for epoch in range(n_epochs):
                     reward = 0
                 elif len(c) > 1 and not(torch.all(pred_firing_rate == 0)): 
                     reward = -1
-                elif c.item() == label.item():
+                elif c.item() == (labels == label.item()).nonzero(as_tuple=True)[0].item():
                     reward = 1
                     if wn_std > (0.01 / n_way):
                         wn_std -= (0.01 / n_way) 
-                elif c.item() != label.item():
+                elif c.item() != (labels == label.item()).nonzero(as_tuple=True)[0].item():
                     reward = -1
 
             total_reward += reward
@@ -456,6 +458,13 @@ for epoch in range(n_epochs):
             network.reset_state_variables()  # Reset state variables.
             
     print("Training Accuracy: " + str(total_corrects_count/total_attempts_count))
+    df = pd.DataFrame(columns=['epoch', 'accuracy'])
+    new_row = {
+        'epoch': epoch,
+        'accuracy': total_corrects_count/total_attempts_count
+    }
+    df = df.append(new_row, ignore_index=True)
+    df.to_csv('result.csv', mode='a', index=False, header=False)
 
 print("Progress: %d / %d (%.4f seconds)\n" % (n_epochs, n_epochs, t() - start))
 print("Training complete.\n")
