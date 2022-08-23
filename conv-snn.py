@@ -200,7 +200,7 @@ w_lif_lif = -1 * torch.ones(lif_layer.n, lif_layer.n)
 lif_lif_conn = Connection(
     lif_layer,
     lif_layer, 
-    w = w_lif_lif,
+    w = w_lif_lif, #-0.15 * torch.ones(lif_layer.n, lif_layer.n),
     #w=-1*torch.multiply((0.05 + torch.randn(lif_layer_c1.n, lif_layer_c1.n)), torch.empty(lif_layer_c1.n, lif_layer_c1.n).random_(2)),
     #wmin=-1,  # minimum weight value
     #wmax=0,  # maximum weight value
