@@ -312,7 +312,7 @@ for epoch in range(n_epochs):
     total_attempts_count = 0
 
     for step, task in enumerate(tqdm(task_loader)):
-        labels = torch.unique(task['label'])
+        labels, indices = torch.sort(torch.unique(task['label']))
         task = [{"image": task['image'][idx], "encoded_image":task['encoded_image'][idx], "label":task['label'][idx]} for idx in range(task['image'].shape[0])]
         # Get next input sample.  inaro dadam jolo bara if
         if step > n_train:  
@@ -325,8 +325,8 @@ for epoch in range(n_epochs):
                 inputs = {k: v.cuda() for k, v in inputs.items()}
             label = batch["label"]
             block_n = int(lif_layer.n / 10)
-            lif_lif_conn.w[lif_lif_conn.w == 1] = -1 
-            lif_lif_conn.w[label.item()*block_n:(label.item()+1)*block_n, label.item()*block_n:(label.item()+1)*block_n] = 1
+            lif_lif_conn.w[lif_lif_conn.w == 0] = -1
+            lif_lif_conn.w[label.item()*block_n:(label.item()+1)*block_n, label.item()*block_n:(label.item()+1)*block_n] = 0
 
             total_attempts_count += 1
 
