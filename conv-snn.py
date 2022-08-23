@@ -312,7 +312,7 @@ for epoch in range(n_epochs):
     total_attempts_count = 0
 
     for step, task in enumerate(tqdm(task_loader)):
-        labels, indices = torch.sort(torch.unique(task['label']))
+        labels = torch.sort(torch.unique(task['label']))[0]
         task = [{"image": task['image'][idx], "encoded_image":task['encoded_image'][idx], "label":task['label'][idx]} for idx in range(task['image'].shape[0])]
         # Get next input sample.  inaro dadam jolo bara if
         if step > n_train:  
