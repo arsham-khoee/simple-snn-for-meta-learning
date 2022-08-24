@@ -120,14 +120,16 @@ task_loader = DataLoader(
 #test_loader = task_loader[n_train:(n_train + n_test)]
 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-if gpu and torch.cuda.is_available():
-    torch.cuda.manual_seed_all(seed)
-else:
-    torch.manual_seed(seed)
-    device = "cpu"
-    if gpu:
-        gpu = False
+device = "cpu"
+gpu = False
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# if gpu and torch.cuda.is_available():
+#     torch.cuda.manual_seed_all(seed)
+# else:
+#     torch.manual_seed(seed)
+#     device = "cpu"
+#     if gpu:
+#         gpu = False
 
 torch.set_num_threads(os.cpu_count() - 1)
 print("Running on Device = ", device)
@@ -196,7 +198,7 @@ conv_lif_conn = Connection(
     norm= lif_layer.n * 0.5 ,  # normalization
 )
 
-w_lif_lif = -1 * torch.ones(lif_layer.n, lif_layer.n)
+w_lif_lif = -0.15 * torch.ones(lif_layer.n, lif_layer.n)
 lif_lif_conn = Connection(
     lif_layer,
     lif_layer, 
@@ -312,7 +314,7 @@ for epoch in range(n_epochs):
     total_attempts_count = 0
 
     for step, task in enumerate(tqdm(task_loader)):
-        labels = torch.unique(task['label'])
+        labels = torch.sort(torch.unique(task['label']))[0]
         task = [{"image": task['image'][idx], "encoded_image":task['encoded_image'][idx], "label":task['label'][idx]} for idx in range(task['image'].shape[0])]
         # Get next input sample.  inaro dadam jolo bara if
         if step > n_train:  
@@ -324,9 +326,9 @@ for epoch in range(n_epochs):
             if gpu: 
                 inputs = {k: v.cuda() for k, v in inputs.items()}
             label = batch["label"]
-            block_n = int(lif_layer.n / 10)
-            lif_lif_conn.w[lif_lif_conn.w == 1] = -1 
-            lif_lif_conn.w[label.item()*block_n:(label.item()+1)*block_n, label.item()*block_n:(label.item()+1)*block_n] = 1
+            #block_n = int(lif_layer.n / 10)
+            #lif_lif_conn.w[lif_lif_conn.w == 1] = -1 
+            #lif_lif_conn.w[label.item()*block_n:(label.item()+1)*block_n, label.item()*block_n:(label.item()+1)*block_n] = 1
 
             total_attempts_count += 1
 
@@ -385,7 +387,7 @@ for epoch in range(n_epochs):
                     
             if batch_idx in range(0, n_way*k_shot):
                 print("INNER LOOP ADAPTATION: " + str(batch_idx))
-                if lif_activity_pct >= 2.5 and lif_activity_pct < 7.5:
+                if lif_activity_pct >= 5 and lif_activity_pct < 10:
                     reward = 1
                 else:
                     reward = -1
