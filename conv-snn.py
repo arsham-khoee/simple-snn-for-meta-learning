@@ -25,7 +25,7 @@ from bindsnet.encoding import PoissonEncoder
 from bindsnet.learning import PostPre, WeightDependentPostPre, MSTDP, MSTDPET, Rmax
 from bindsnet.network import Network
 from bindsnet.network.monitors import Monitor
-from bindsnet.network.nodes import  DiehlAndCookNodes, Input, LIFNodes, AdaptiveLIFNodes
+from bindsnet.network.nodes import  DiehlAndCookNodes, Input, LIFNodes, AdaptiveLIFNodes, BoostedLIFNodes, SRM0Nodes
 from bindsnet.network.topology import Connection, Conv2dConnection, MaxPool2dConnection, SparseConnection
 from bindsnet.pipeline import EnvironmentPipeline
 from bindsnet.pipeline.action import select_softmax
@@ -176,12 +176,12 @@ for fltr1 in range(n_filters):
 w = w.view(n_filters * conv_size * conv_size, n_filters * conv_size * conv_size)
 recurrent_conn = Connection(conv_layer, conv_layer, w=w)
 
-lif_layer = LIFNodes(
+lif_layer = SRM0Nodes(
     n=50, 
     #shape=(1, 1, n_filters),
     shape=(50, 1),
     traces=True,
-    thresh=-54,
+    #thresh=-54,
     refrac=0,
 )
 
@@ -211,7 +211,7 @@ lif_lif_conn = Connection(
     #norm= lif_layer_c1.n * 0.5 ,  # normalization
 )
 
-pred_layer = LIFNodes(
+pred_layer = LIFNodes( #boostedLIF, currentLIF, DiehlAndCookNodes, SRM0Nodes
     n=10*n_way,
     #shape=(1, 1, n_filters),
     shape=(10*n_way, 1),
@@ -322,7 +322,7 @@ for epoch in range(n_epochs):
         if step > n_train:  
             break
         print("EPISODE: " + str(step))
-        recall_v = 1
+        recall_v = 1 #0.5
         conv_lif_conn.learnable = True
         lif_pred_conn.learnable = False
         for batch_idx, batch in enumerate(task):
@@ -350,7 +350,9 @@ for epoch in range(n_epochs):
 
             print("Recall noise voltage: " + str(recall_v))
             print("White noise std: " + str(wn_std))
-            wn = torch.normal(mean=wn_mean, std=wn_std, size=(time , 1, pred_layer.n, 1))
+            wn = torch.normal(mean=wn_mean, std=wn_std, size=(time, pred_layer.n))
+            wn[:,(labels == label.item()).nonzero(as_tuple=True)[0].item()*10:((labels == label.item()).nonzero(as_tuple=True)[0].item()+1)*10] += 0.1
+            wn = wn.reshape(time, 1, pred_layer.n, 1)
             # Run the network on the input.
             network.run(inputs=inputs, time=time, input_time_dim=1, reward=reward, injects_v={"P": wn.to(device), "E": recall_noise.to(device)}) 
             #input_layer.reset_state_variables()
@@ -412,11 +414,11 @@ for epoch in range(n_epochs):
                 elif len(cl) > 1 and not(torch.all(lif_firing_rate == 0)): 
                     reward = -1
                 elif cl.item() == label.item():
-                    reward = 1 # * int(torch.amax(lif_firing_rate).item()) #reward=1
-                    if recall_v >= 0.1:
+                    reward = 1 * int(torch.amax(lif_firing_rate).item()) #reward=1
+                    if recall_v > 0.1:
                         recall_v = float("%0.3f" % (recall_v - 0.1))
                 elif cl.item() != label.item():
-                    reward = -1 # * int(torch.amax(lif_firing_rate).item()) #reward=-1
+                    reward = -1 * int(torch.amax(lif_firing_rate).item()) #reward=-1
 
             if batch_idx in range(n_way*k_shot,(n_way*k_shot)+n_way):
                 print("OUTER LOOP ADAPTATION: " + str(batch_idx))
@@ -429,7 +431,7 @@ for epoch in range(n_epochs):
                     reward = -1
                 elif c.item() == (labels == label.item()).nonzero(as_tuple=True)[0].item():
                     reward = 1
-                    if wn_std >= (0.01 / n_way):
+                    if wn_std > (0.01 / n_way):
                         wn_std = float("%0.3f" % (wn_std - (0.01 / n_way)))
                 elif c.item() != (labels == label.item()).nonzero(as_tuple=True)[0].item():
                     reward = -1
