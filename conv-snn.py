@@ -26,11 +26,16 @@ from bindsnet.learning import PostPre, WeightDependentPostPre, MSTDP, MSTDPET, R
 from bindsnet.network import Network
 from bindsnet.network.monitors import Monitor
 from bindsnet.network.nodes import Input, LIFNodes, SRM0Nodes
+<<<<<<< HEAD
+=======
+from bindsnet.network.nodes import  DiehlAndCookNodes, Input, LIFNodes, AdaptiveLIFNodes, BoostedLIFNodes, SRM0Nodes
+>>>>>>> 72a31a787a77fcf4e3c62b087bf3ac1c15824096
 from bindsnet.network.topology import Connection, Conv2dConnection, MaxPool2dConnection, SparseConnection
 from bindsnet.pipeline import EnvironmentPipeline
 from bindsnet.pipeline.action import select_softmax
-
-print()
+from dataloader.omniglot_dataset import OmniglotDataset
+from dataloader.batch_sampler import BatchSampler
+from dataloader.omniglot_sampler import OmniglotNShot
 
 formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
 torch.set_printoptions(threshold=torch.nan)
@@ -97,6 +102,31 @@ n_way = args.n_way
 k_shot = args.k_shot
 
 # Load MNIST data.
+
+# train_dataset = OmniglotDataset(mode='train')
+# val_dataset = OmniglotDataset(mode='val')
+# trainval_dataset = OmniglotDataset(mode='trainval')
+# test_dataset = OmniglotDataset(mode='test')
+
+# tr_sampler = BatchSampler(labels=train_dataset.y,
+#                             classes_per_it=n_way,
+#                             num_samples=k_shot,
+#                             iterations=n_tasks,
+#                             batch_size=batch_size)
+
+# task_loader = DataLoader(
+#     dataset=train_dataset, 
+#     batch_sampler=tr_sampler, 
+#     num_workers=0)
+db = OmniglotNShot('./data/omni', batchsz=1, n_way=5, k_shot=5, k_query=15, imgsz=28)
+t = db.next()
+# print(t[0])
+# print(t[1])
+print('***********')
+sys.exit()
+
+
+
 
 train_data = DatasetLoader(
     path = './data/mnist-meta', 
