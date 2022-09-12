@@ -25,7 +25,7 @@ from bindsnet.encoding import PoissonEncoder
 from bindsnet.learning import PostPre, WeightDependentPostPre, MSTDP, MSTDPET, Rmax
 from bindsnet.network import Network
 from bindsnet.network.monitors import Monitor
-from bindsnet.network.nodes import  DiehlAndCookNodes, Input, LIFNodes, AdaptiveLIFNodes, BoostedLIFNodes, SRM0Nodes
+from bindsnet.network.nodes import Input, LIFNodes, SRM0Nodes
 from bindsnet.network.topology import Connection, Conv2dConnection, MaxPool2dConnection, SparseConnection
 from bindsnet.pipeline import EnvironmentPipeline
 from bindsnet.pipeline.action import select_softmax
@@ -181,8 +181,10 @@ lif_layer = SRM0Nodes(
     #shape=(1, 1, n_filters),
     shape=(50, 1),
     traces=True,
-    #thresh=-54,
+    #thresh=-52.5,
     refrac=0,
+    #d_thresh=2.5,
+    #rho_0=2.0,
 )
 
 conv_lif_conn = Connection(
@@ -191,7 +193,7 @@ conv_lif_conn = Connection(
     w=torch.multiply((0.05 + torch.randn(conv_layer.n, lif_layer.n)), torch.empty(conv_layer.n, lif_layer.n).random_(2)),
     wmin=0,  # minimum weight value
     wmax=1,  # maximum weight value
-    update_rule=MSTDPET,  # learning rule
+    update_rule=WeightDependentPostPre,  # learning rule
     nu=1e-1,  # learning rate
     norm= lif_layer.n * 0.5 ,  # normalization
 )
@@ -211,7 +213,7 @@ lif_lif_conn = Connection(
     #norm= lif_layer_c1.n * 0.5 ,  # normalization
 )
 
-pred_layer = LIFNodes( #boostedLIF, currentLIF, DiehlAndCookNodes, SRM0Nodes
+pred_layer = LIFNodes( #currentLIF, DiehlAndCookNodes, SRM0Nodes
     n=10*n_way,
     #shape=(1, 1, n_filters),
     shape=(10*n_way, 1),
@@ -337,7 +339,7 @@ for epoch in range(n_epochs):
             
             recall_noise = recall_noise.reshape(time, lif_layer.n)
             recall_noise[recall_noise > 0] = 0
-            recall_noise[:,label.item()*block_n:(label.item()+1)*block_n] = recall_v
+            ##recall_noise[:,label.item()*block_n:(label.item()+1)*block_n] = recall_v
             recall_noise = recall_noise.reshape(time, 1, lif_layer.n, 1)
 
             total_attempts_count += 1
