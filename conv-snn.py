@@ -26,6 +26,7 @@ from bindsnet.learning import PostPre, WeightDependentPostPre, MSTDP, MSTDPET, R
 from bindsnet.network import Network
 from bindsnet.network.monitors import Monitor
 from bindsnet.network.nodes import Input, LIFNodes, SRM0Nodes
+from bindsnet.network.nodes import  DiehlAndCookNodes, Input, LIFNodes, AdaptiveLIFNodes, BoostedLIFNodes, SRM0Nodes
 from bindsnet.network.topology import Connection, Conv2dConnection, MaxPool2dConnection, SparseConnection
 from bindsnet.pipeline import EnvironmentPipeline
 from bindsnet.pipeline.action import select_softmax
@@ -237,7 +238,7 @@ lif_lif_conn = Connection(
     #norm= lif_layer_c1.n * 0.5 ,  # normalization
 )
 
-pred_layer = LIFNodes(
+pred_layer = LIFNodes( #boostedLIF, currentLIF, DiehlAndCookNodes, SRM0Nodes
     n=10*n_way,
     #shape=(1, 1, n_filters),
     shape=(10*n_way, 1),
@@ -377,7 +378,7 @@ for epoch in range(n_epochs):
             print("Recall noise voltage: " + str(recall_v))
             print("White noise std: " + str(wn_std))
             wn = torch.normal(mean=wn_mean, std=wn_std, size=(time, pred_layer.n))
-            wn[:,(labels == label.item()).nonzero(as_tuple=True)[0].item()*10:((labels == label.item()).nonzero(as_tuple=True)[0].item()+1)*10] += 0.01
+            wn[:,(labels == label.item()).nonzero(as_tuple=True)[0].item()*10:((labels == label.item()).nonzero(as_tuple=True)[0].item()+1)*10] += 0.1
             wn = wn.reshape(time, 1, pred_layer.n, 1)
             # Run the network on the input.
             network.run(inputs=inputs, time=time, input_time_dim=1, reward=reward, injects_v={"P": wn.to(device), "E": recall_noise.to(device)}) 
