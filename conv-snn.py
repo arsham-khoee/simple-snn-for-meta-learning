@@ -25,12 +25,13 @@ from bindsnet.encoding import PoissonEncoder
 from bindsnet.learning import PostPre, WeightDependentPostPre, MSTDP, MSTDPET, Rmax
 from bindsnet.network import Network
 from bindsnet.network.monitors import Monitor
-from bindsnet.network.nodes import  DiehlAndCookNodes, Input, LIFNodes, AdaptiveLIFNodes
+from bindsnet.network.nodes import Input, LIFNodes, SRM0Nodes
 from bindsnet.network.topology import Connection, Conv2dConnection, MaxPool2dConnection, SparseConnection
 from bindsnet.pipeline import EnvironmentPipeline
 from bindsnet.pipeline.action import select_softmax
-
-print()
+from dataloader.omniglot_dataset import OmniglotDataset
+from dataloader.batch_sampler import BatchSampler
+from dataloader.omniglot_sampler import OmniglotNShot
 
 formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
 torch.set_printoptions(threshold=torch.nan)
@@ -98,6 +99,31 @@ k_shot = args.k_shot
 
 # Load MNIST data.
 
+# train_dataset = OmniglotDataset(mode='train')
+# val_dataset = OmniglotDataset(mode='val')
+# trainval_dataset = OmniglotDataset(mode='trainval')
+# test_dataset = OmniglotDataset(mode='test')
+
+# tr_sampler = BatchSampler(labels=train_dataset.y,
+#                             classes_per_it=n_way,
+#                             num_samples=k_shot,
+#                             iterations=n_tasks,
+#                             batch_size=batch_size)
+
+# task_loader = DataLoader(
+#     dataset=train_dataset, 
+#     batch_sampler=tr_sampler, 
+#     num_workers=0)
+db = OmniglotNShot('./data/omni', batchsz=1, n_way=5, k_shot=5, k_query=15, imgsz=28)
+t = db.next()
+# print(t[0])
+# print(t[1])
+print('***********')
+sys.exit()
+
+
+
+
 train_data = DatasetLoader(
     path = './data/mnist-meta', 
     time = time, 
@@ -120,16 +146,14 @@ task_loader = DataLoader(
 #test_loader = task_loader[n_train:(n_train + n_test)]
 
 
-device = "cpu"
-gpu = False
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# if gpu and torch.cuda.is_available():
-#     torch.cuda.manual_seed_all(seed)
-# else:
-#     torch.manual_seed(seed)
-#     device = "cpu"
-#     if gpu:
-#         gpu = False
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if gpu and torch.cuda.is_available():
+    torch.cuda.manual_seed_all(seed)
+else:
+    torch.manual_seed(seed)
+    device = "cpu"
+    if gpu:
+        gpu = False
 
 torch.set_num_threads(os.cpu_count() - 1)
 print("Running on Device = ", device)
@@ -178,12 +202,12 @@ for fltr1 in range(n_filters):
 w = w.view(n_filters * conv_size * conv_size, n_filters * conv_size * conv_size)
 recurrent_conn = Connection(conv_layer, conv_layer, w=w)
 
-lif_layer = LIFNodes(
-    n=300, 
+lif_layer = SRM0Nodes(
+    n=50, 
     #shape=(1, 1, n_filters),
-    shape=(300, 1),
+    shape=(50, 1),
     traces=True,
-  #  thresh=-52.5,
+    #thresh=-54,
     refrac=0,
 )
 
@@ -198,11 +222,13 @@ conv_lif_conn = Connection(
     norm= lif_layer.n * 0.5 ,  # normalization
 )
 
-w_lif_lif = -0.15 * torch.ones(lif_layer.n, lif_layer.n)
+w_lif_lif = torch.kron(torch.eye(10),torch.ones([5, 5]))
+w_lif_lif[w_lif_lif == 0] = -3
+#w_lif_lif[w_lif_lif == 1] = 0
 lif_lif_conn = Connection(
     lif_layer,
     lif_layer, 
-    w = w_lif_lif,
+    w = w_lif_lif, #-0.15 * torch.ones(lif_layer.n, lif_layer.n),
     #w=-1*torch.multiply((0.05 + torch.randn(lif_layer_c1.n, lif_layer_c1.n)), torch.empty(lif_layer_c1.n, lif_layer_c1.n).random_(2)),
     #wmin=-1,  # minimum weight value
     #wmax=0,  # maximum weight value
@@ -303,6 +329,8 @@ reward = 0
 wn_mean=0
 wn_std=3
 
+recall_noise = torch.zeros(size=(time , 1, lif_layer.n, 1))
+
 for epoch in range(n_epochs):
     if epoch % progress_interval == 0:
         print("Progress: %d / %d (%.4f seconds)" % (epoch, n_epochs, t() - start))
@@ -320,15 +348,23 @@ for epoch in range(n_epochs):
         if step > n_train:  
             break
         print("EPISODE: " + str(step))
-        conv_pred_conn.learnable = False
+        recall_v = 1 #0.5
+        conv_lif_conn.learnable = True
+        lif_pred_conn.learnable = False
         for batch_idx, batch in enumerate(task):
             inputs = {"X": batch["encoded_image"].view(time, batch_size, 1, 28, 28)}
             if gpu: 
                 inputs = {k: v.cuda() for k, v in inputs.items()}
             label = batch["label"]
-            #block_n = int(lif_layer.n / 10)
-            #lif_lif_conn.w[lif_lif_conn.w == 1] = -1 
+            #print("# SAMPLE: "+str(batch_idx)+", LABEL: "+str(label.item())+", ENCODED LEABEL: "+ str((labels == label.item()).nonzero(as_tuple=True)[0].item()))
+            block_n = int(lif_layer.n / 10)
+            #lif_lif_conn.w[lif_lif_conn.w == 1] = -3
             #lif_lif_conn.w[label.item()*block_n:(label.item()+1)*block_n, label.item()*block_n:(label.item()+1)*block_n] = 1
+            
+            recall_noise = recall_noise.reshape(time, lif_layer.n)
+            recall_noise[recall_noise > 0] = 0
+            recall_noise[:,label.item()*block_n:(label.item()+1)*block_n] = recall_v
+            recall_noise = recall_noise.reshape(time, 1, lif_layer.n, 1)
 
             total_attempts_count += 1
 
@@ -338,10 +374,13 @@ for epoch in range(n_epochs):
 
             print("Initial reward: " + str(reward))
 
+            print("Recall noise voltage: " + str(recall_v))
             print("White noise std: " + str(wn_std))
-            wn = torch.normal(mean=wn_mean, std=wn_std, size=(time , 1, pred_layer.n, 1))
+            wn = torch.normal(mean=wn_mean, std=wn_std, size=(time, pred_layer.n))
+            wn[:,(labels == label.item()).nonzero(as_tuple=True)[0].item()*10:((labels == label.item()).nonzero(as_tuple=True)[0].item()+1)*10] += 0.01
+            wn = wn.reshape(time, 1, pred_layer.n, 1)
             # Run the network on the input.
-            network.run(inputs=inputs, time=time, input_time_dim=1, reward=reward, injects_v={"P": wn.to(device)}) 
+            network.run(inputs=inputs, time=time, input_time_dim=1, reward=reward, injects_v={"P": wn.to(device), "E": recall_noise.to(device)}) 
             #input_layer.reset_state_variables()
             #conv_layer.reset_state_variables()
             #out_layer.reset_state_variables()
@@ -354,8 +393,17 @@ for epoch in range(n_epochs):
             lif_firing_rate = spikes["E"].get("s").float().squeeze().T.sum(axis=1)
             #lif_firing_rate[lif_firing_rate > 0] = 1 
             #lif_activity_pct = (torch.sum(lif_firing_rate).item() / lif_layer.n)*100
-            lif_activity_pct = (torch.sum(lif_firing_rate).item() / (lif_layer.n*time))*100
+            #lif_activity_pct = (torch.sum(lif_firing_rate).item() / (lif_layer.n*time))*100
             #print(lif_activity_pct)
+            l = torch.where(lif_firing_rate == torch.amax(lif_firing_rate))[0]
+
+            clusters = torch.zeros(10, dtype=torch.bool)
+
+            for i in range(len(l)):
+                clusters[int(l[i] / 5)] = True
+
+            cl = torch.where(clusters == True)[0]
+
 
             pred_firing_rate = spikes["P"].get("s").float().squeeze().T.sum(axis=1)
             #print("pred_layer firing rate: " + str(pred_firing_rate))
@@ -387,14 +435,21 @@ for epoch in range(n_epochs):
                     
             if batch_idx in range(0, n_way*k_shot):
                 print("INNER LOOP ADAPTATION: " + str(batch_idx))
-                if lif_activity_pct >= 5 and lif_activity_pct < 10:
-                    reward = 1
-                else:
+                if len(cl) > 1 and torch.all(lif_firing_rate == 0):
+                    reward = 0
+                elif len(cl) > 1 and not(torch.all(lif_firing_rate == 0)): 
                     reward = -1
+                elif cl.item() == label.item():
+                    reward = 1 * int(torch.amax(lif_firing_rate).item()) #reward=1
+                    if recall_v > 0.1:
+                        recall_v = float("%0.3f" % (recall_v - 0.1))
+                elif cl.item() != label.item():
+                    reward = -1 * int(torch.amax(lif_firing_rate).item()) #reward=-1
 
             if batch_idx in range(n_way*k_shot,(n_way*k_shot)+n_way):
                 print("OUTER LOOP ADAPTATION: " + str(batch_idx))
-                conv_pred_conn.learnable = True
+                conv_lif_conn.learnable = False
+                lif_pred_conn.learnable = True
 
                 if len(c) > 1 and torch.all(pred_firing_rate == 0):
                     reward = 0
@@ -403,7 +458,7 @@ for epoch in range(n_epochs):
                 elif c.item() == (labels == label.item()).nonzero(as_tuple=True)[0].item():
                     reward = 1
                     if wn_std > (0.01 / n_way):
-                        wn_std -= (0.01 / n_way) 
+                        wn_std = float("%0.3f" % (wn_std - (0.01 / n_way)))
                 elif c.item() != (labels == label.item()).nonzero(as_tuple=True)[0].item():
                     reward = -1
 
@@ -419,7 +474,7 @@ for epoch in range(n_epochs):
 
             print("Updated reward: " + str(reward))
             # Update network with new reward
-            network.run(inputs=inputs, time=time, input_time_dim=1, reward=reward) ###
+            network.run(inputs=inputs, time=time, input_time_dim=1, reward=reward, injects_v={"P": wn.to(device), "E": recall_noise.to(device)}) ###
 
             # Optionally plot various simulation information.
             if plot and batch_size == 1:
